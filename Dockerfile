@@ -13,10 +13,8 @@ COPY . .
 
 ENV FLASK_APP=app.py
 
-RUN pip install gunicorn
+EXPOSE 5000
 
-EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl --fail http://0.0.0.0:5000/ || exit 1
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl --fail http://0.0.0.0:8080/ || exit 1
-
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
+CMD ["python", "app.py"]
