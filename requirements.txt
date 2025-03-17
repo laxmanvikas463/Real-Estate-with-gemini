@@ -1,5 +1,6 @@
-torch
-numpy
-nltk
-Flask
-Flask-Cors
+Flask==3.1.0
+flask-cors==5.0.1
+torch==2.6.0+cu124
+nltk==3.9.1
+numpy==1.26.4
+pyngrok==7.2.3
