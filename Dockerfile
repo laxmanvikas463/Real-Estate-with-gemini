@@ -16,6 +16,4 @@ ENV FLASK_APP=app.py
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl --fail http://0.0.0.0:8080/ || exit 1
-
 CMD ["python", "app.py"]
