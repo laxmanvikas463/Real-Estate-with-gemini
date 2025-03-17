@@ -1,20 +1,22 @@
-# Use a Python base image
 FROM python:3.12-slim
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Copy the requirements file into the container
-COPY requirements.txt .
-
-# Install the Python dependencies
+COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m nltk.downloader punkt
+RUN python -m nltk.downloader wordnet
+RUN python -m nltk.downloader omw-1.4
+RUN python -m nltk.downloader punkt_tab
 
-# Copy the rest of your application code into the container
 COPY . .
 
-# Expose the port that Flask will run on
+ENV FLASK_APP=app.py
+
+RUN pip install gunicorn
+
 EXPOSE 8080
 
-# Run the Flask application
-CMD ["python", "app.py"] #Or whatever you named your main flask file.
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl --fail http://0.0.0.0:8080/ || exit 1
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
