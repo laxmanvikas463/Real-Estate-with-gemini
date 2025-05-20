@@ -1,242 +1,70 @@
+import json
+import random
+import requests
 import torch
-import torch.nn as nn
-
-
-class NeuralNet(nn.Module):
-    def __init__(self, input_size, hidden_size, num_classes):
-        super(NeuralNet, self).__init__()
-        self.l1 = nn.Linear(input_size, hidden_size) 
-        self.l2 = nn.Linear(hidden_size, hidden_size) 
-        self.l3 = nn.Linear(hidden_size, num_classes)
-        self.relu = nn.ReLU()
-    
-    def forward(self, x):
-        out = self.l1(x)
-        out = self.relu(out)
-        out = self.l2(out)
-        out = self.relu(out)
-        out = self.l3(out)
-        # no activation and no softmax at the end
-        return out
-    
-
-#############
 import numpy as np
 import nltk
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from nltk.stem.porter import PorterStemmer
+
+# NLTK downloads
 nltk.download('punkt')
+nltk.download('punkt_tab')
 nltk.download('wordnet')
 nltk.download('omw-1.4')
-nltk.download('punkt_tab')
-from nltk.stem.porter import PorterStemmer
+
+# Flask app setup
+app = Flask(__name__)
+CORS(app)
+
+# WhatsApp Cloud API credentials
+VERIFY_TOKEN = "VspD-4Db!4u]"
+WHATSAPP_TOKEN = "EAAJZAa4DFt8wBO5fuanHSWsrog51y32RAu5MirMyl9naJrRlW5vJTKpIZCUHOsVurdiwQMUOxD2nI3Iy8xXEayr95JIAg9KZCq8auB7xfkNfJ2KbDZB5KTGeBnIWfm5lAFh0ZARa1VtObJdbob50czOFFuqSRhA5fXRZAH0zGnGdzVZAoUZAtUXSW7JZAuhvYqkHcwDFv9eFvjNH1ZACzkD1wZBm6ILV4HA69sH8xSPBTuwmDgiSZCAZD"
+PHONE_NUMBER_ID = "582940438245620"
+
+# NLP tools
 stemmer = PorterStemmer()
-
-
-def tokenize(sentence):
-    """
-    split sentence into array of words/tokens
-    a token can be a word or punctuation character, or number
-    """
-    return nltk.word_tokenize(sentence)
-
-
-def stem(word):
-    """
-    stemming = find the root form of the word
-    examples:
-    words = ["organize", "organizes", "organizing"]
-    words = [stem(w) for w in words]
-    -> ["organ", "organ", "organ"]
-    """
-    return stemmer.stem(word.lower())
-
-
+def tokenize(sentence): return nltk.word_tokenize(sentence)
+def stem(word): return stemmer.stem(word.lower())
 def bag_of_words(tokenized_sentence, words):
-    """
-    return bag of words array:
-    1 for each known word that exists in the sentence, 0 otherwise
-    example:
-    sentence = ["hello", "how", "are", "you"]
-    words = ["hi", "hello", "I", "you", "bye", "thank", "cool"]
-    bog   = [  0 ,    1 ,    0 ,   1 ,    0 ,    0 ,      0]
-    """
-    # stem each word
-    sentence_words = [stem(word) for word in tokenized_sentence]
-    # initialize bag with 0 for each word
+    sentence_words = [stem(w) for w in tokenized_sentence]
     bag = np.zeros(len(words), dtype=np.float32)
     for idx, w in enumerate(words):
-        if w in sentence_words: 
+        if w in sentence_words:
             bag[idx] = 1
-
     return bag
-###########
 
+# Load trained model
+class NeuralNet(torch.nn.Module):
+    def __init__(self, input_size, hidden_size, num_classes):
+        super(NeuralNet, self).__init__()
+        self.l1 = torch.nn.Linear(input_size, hidden_size)
+        self.l2 = torch.nn.Linear(hidden_size, hidden_size)
+        self.l3 = torch.nn.Linear(hidden_size, num_classes)
+        self.relu = torch.nn.ReLU()
 
+    def forward(self, x):
+        x = self.relu(self.l1(x))
+        x = self.relu(self.l2(x))
+        return self.l3(x)
 
-import numpy as np
-import random
-import json
-
-import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-
-from __main__ import bag_of_words, tokenize, stem, NeuralNet
-
-
-with open('intents.json', 'r') as f:
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+with open('real intents.json', 'r') as f:
     intents = json.load(f)
 
-all_words = []
-tags = []
-xy = []
-# loop through each sentence in our intents patterns
-for intent in intents['intents']:
-    tag = intent['tag']
-    # add to tag list
-    tags.append(tag)
-    for pattern in intent['patterns']:
-        # tokenize each word in the sentence
-        w = tokenize(pattern)
-        # add to our words list
-        all_words.extend(w)
-        # add to xy pair
-        xy.append((w, tag))
-
-# stem and lower each word
-ignore_words = ['?', '.', '!']
-all_words = [stem(w) for w in all_words if w not in ignore_words]
-# remove duplicates and sort
-all_words = sorted(set(all_words))
-tags = sorted(set(tags))
-
-print(len(xy), "patterns")
-print(len(tags), "tags:", tags)
-print(len(all_words), "unique stemmed words:", all_words)
-
-# create training data
-X_train = []
-y_train = []
-for (pattern_sentence, tag) in xy:
-    # X: bag of words for each pattern_sentence
-    bag = bag_of_words(pattern_sentence, all_words)
-    X_train.append(bag)
-    # y: PyTorch CrossEntropyLoss needs only class labels, not one-hot
-    label = tags.index(tag)
-    y_train.append(label)
-
-X_train = np.array(X_train)
-y_train = np.array(y_train)
-
-# Hyper-parameters 
-num_epochs = 1000
-batch_size = 8
-learning_rate = 0.001
-input_size = len(X_train[0])
-hidden_size = 8
-output_size = len(tags)
-print(input_size, output_size)
-
-class ChatDataset(Dataset):
-
-    def __init__(self):
-        self.n_samples = len(X_train)
-        self.x_data = X_train
-        self.y_data = y_train
-
-    # support indexing such that dataset[i] can be used to get i-th sample
-    def __getitem__(self, index):
-        return self.x_data[index], self.y_data[index]
-
-    # we can call len(dataset) to return the size
-    def __len__(self):
-        return self.n_samples
-
-dataset = ChatDataset()
-train_loader = DataLoader(dataset=dataset,
-                          batch_size=batch_size,
-                          shuffle=True,
-                          num_workers=0)
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-model = NeuralNet(input_size, hidden_size, output_size).to(device)
-
-# Loss and optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-# Train the model
-for epoch in range(num_epochs):
-    for (words, labels) in train_loader:
-        words = words.to(device)
-        labels = labels.to(dtype=torch.long).to(device)
-        
-        # Forward pass
-        outputs = model(words)
-        # if y would be one-hot, we must apply
-        # labels = torch.max(labels, 1)[1]
-        loss = criterion(outputs, labels)
-        
-        # Backward and optimize
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        
-    if (epoch+1) % 100 == 0:
-        print (f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
-
-
-print(f'final loss: {loss.item():.4f}')
-
-data = {
-"model_state": model.state_dict(),
-"input_size": input_size,
-"hidden_size": hidden_size,
-"output_size": output_size,
-"all_words": all_words,
-"tags": tags
-}
-
-FILE = "data.pth"
-torch.save(data, FILE)
-
-print(f'training complete. file saved to {FILE}')
-###########
-
-
-
-
-
-
-import random
-import json
-
-import torch
-
-#from model import NeuralNet
-#from nltk_utils import bag_of_words, tokenize
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-with open('intents.json', 'r') as json_data:
-    intents = json.load(json_data)
-
-FILE = "data.pth"
-data = torch.load(FILE)
-
+data = torch.load("data.pth")
 input_size = data["input_size"]
 hidden_size = data["hidden_size"]
 output_size = data["output_size"]
-all_words = data['all_words']
-tags = data['tags']
-model_state = data["model_state"]
+all_words = data["all_words"]
+tags = data["tags"]
 
 model = NeuralNet(input_size, hidden_size, output_size).to(device)
-model.load_state_dict(model_state)
+model.load_state_dict(data["model_state"])
 model.eval()
 
-bot_name = "Sam"
-
+# Chatbot logic
 def get_response(msg):
     sentence = tokenize(msg)
     X = bag_of_words(sentence, all_words)
@@ -245,37 +73,105 @@ def get_response(msg):
 
     output = model(X)
     _, predicted = torch.max(output, dim=1)
-
     tag = tags[predicted.item()]
-
-    probs = torch.softmax(output, dim=1)
-    prob = probs[0][predicted.item()]
+    prob = torch.softmax(output, dim=1)[0][predicted.item()]
     if prob.item() > 0.75:
         for intent in intents['intents']:
-            if tag == intent["tag"]:
+            if tag == intent['tag']:
                 return random.choice(intent['responses'])
-    
     return "I do not understand..."
-    #I do not understand...
-    #Sorry, Currently we do not have any information on that
 
+# WhatsApp message sender
+def send_whatsapp_message(phone_number_id, to_number, message):
+    url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "text": {
+            "body": message
+        }
+    }
+    res = requests.post(url, headers=headers, json=payload)
+    print("Message sent:", res.status_code, res.text)
 
-############
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-
-app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+# Basic test route
 @app.route('/')
-def home():
-    return jsonify({'message': 'Flask on Cloud Run is live!'})
+def index():
+    return jsonify({"message": "Flask on Cloud Run is live!"})
 
+# Chat test endpoint
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.get_json()
     message = data.get("message", "")
     response = get_response(message)
     return jsonify({"response": response})
+
+# Webhook for WhatsApp
+# @app.route('/webhook', methods=['GET', 'POST'])
+# def webhook():
+#     if request.method == 'GET':
+#         mode = request.args.get("hub.mode")
+#         token = request.args.get("hub.verify_token")
+#         challenge = request.args.get("hub.challenge")
+#         if mode == "subscribe" and token == VERIFY_TOKEN:
+#             return challenge, 200
+#         else:
+#             return "Verification failed", 403
+
+#     if request.method == 'POST':
+#         data = request.get_json()
+#         for entry in data.get("entry", []):
+#             for change in entry.get("changes", []):
+#                 value = change.get("value", {})
+#                 messages = value.get("messages", [])
+#                 if messages:
+#                     msg = messages[0]
+#                     from_number = msg["from"]
+#                     text = msg["text"]["body"]
+#                     reply = get_response(text)
+#                     send_whatsapp_reply(from_number, reply)
+#         return "OK", 200
+@app.route('/webhook', methods=['GET', 'POST'])
+def webhook():
+    if request.method == 'GET':
+        # Facebook webhook verification
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
+
+        if mode == 'subscribe' and token == VERIFY_TOKEN:
+            print("WEBHOOK VERIFIED")
+            return challenge, 200
+        else:
+            return 'Verification token mismatch', 403
+
+    elif request.method == 'POST':
+        data = request.get_json()
+        print("Received webhook:", data)  # useful for debugging
+
+        if data.get("object") == "whatsapp_business_account":
+            for entry in data.get("entry", []):
+                for change in entry.get("changes", []):
+                    value = change.get("value", {})
+                    messages = value.get("messages", [])
+                    if messages:
+                        for message in messages:
+                            phone_number_id = value["metadata"]["phone_number_id"]
+                            from_number = message["from"]  # sender's phone number
+                            user_msg = message["text"]["body"]  # message sent
+
+                            # Generate response from your chatbot
+                            bot_response = get_response(user_msg)
+
+                            # Send response back using WhatsApp API
+                            send_whatsapp_message(phone_number_id, from_number, bot_response)
+
+        return 'EVENT_RECEIVED', 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
